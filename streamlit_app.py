@@ -1,20 +1,3 @@
-¡Por supuesto! Aquí tienes el código completo y unificado con absolutamente todas las mejoras que implementamos:
-
-Lectura en vivo de Google Sheets.
-
-Diseño de "tarjetas" adaptables para el móvil (sin cortes de texto).
-
-Scroll vertical interno (para mostrar todos los problemas sin alargar la página al infinito).
-
-Filtro dinámico por Responsable.
-
-Descarga de reporte en PDF horizontal estilo tabla (que respeta el filtro que elijas y limpia los "nan").
-
-Links directos al formulario de actualización por cada ticket.
-
-Puedes copiar este bloque entero y reemplazar todo el contenido de tu archivo app.py:
-
-Python
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
