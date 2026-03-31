@@ -60,7 +60,7 @@ for col in columnas_visibles:
         df[col] = "N/A"
 
 # ==========================================
-# 4. FILTRADO Y GENERACIÓN DE PDF
+# 4. FILTRADO Y GENERACIÓN DE PDF HORIZONTAL
 # ==========================================
 es_cerrado = df['ESTADO'].astype(str).str.contains("CIERRE", case=False, na=False)
 
@@ -68,26 +68,74 @@ df_activos = df[~es_cerrado].copy()
 df_cerrados = df[es_cerrado].copy()
 
 def generar_pdf(dataframe):
-    pdf = FPDF()
+    # Crear PDF en formato 'L' (Landscape / Horizontal)
+    pdf = FPDF(orientation='L', unit='mm', format='A4')
+    pdf.set_auto_page_break(auto=False) # Manejamos los saltos de página manualmente para la tabla
     pdf.add_page()
     
+    # Título Principal
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt="Listado de Fallos / Problemas Activos", ln=True, align='C')
+    pdf.cell(0, 10, txt="Listado de Fallos / Problemas Activos", ln=True, align='C')
     pdf.ln(5)
     
+    # Configuración de anchos de columnas (Total ~277mm para ocupar toda la hoja horizontal)
+    w_ticket = 25
+    w_area = 40
+    w_resp = 40
+    w_estado = 32
+    w_prob = 140
+    
+    # Función interna para imprimir los encabezados de la tabla
+    def imprimir_encabezados():
+        pdf.set_font("Arial", 'B', 10)
+        pdf.set_fill_color(220, 220, 220) # Fondo gris claro
+        pdf.cell(w_ticket, 8, "Ticket", border=1, fill=True, align='C')
+        pdf.cell(w_area, 8, "Área", border=1, fill=True, align='C')
+        pdf.cell(w_resp, 8, "Responsable", border=1, fill=True, align='C')
+        pdf.cell(w_estado, 8, "Estado", border=1, fill=True, align='C')
+        pdf.cell(w_prob, 8, "Descripción del Problema", border=1, fill=True, align='C')
+        pdf.ln()
+
+    imprimir_encabezados()
+    pdf.set_font("Arial", '', 9)
+    
     for index, row in dataframe.iterrows():
+        # Limpieza de textos para la librería FPDF
         area = str(row['ÁREA']).encode('latin-1', 'replace').decode('latin-1')
         resp = str(row['RESPONSABLE']).encode('latin-1', 'replace').decode('latin-1')
         estado = str(row['ESTADO']).encode('latin-1', 'replace').decode('latin-1')
         problema = str(row['PROBLEMA']).encode('latin-1', 'replace').decode('latin-1')
         ticket = str(row.get('N° DE TICKET', 'S/N')).encode('latin-1', 'replace').decode('latin-1')
 
-        pdf.set_font("Arial", 'B', 11)
-        pdf.cell(0, 6, txt=f"Ticket: {ticket} | Área: {area} | Resp: {resp} | Estado: {estado}", ln=True)
+        # Control de salto de página (Si estamos muy cerca del borde inferior, ~180mm)
+        lineas_estimadas = max(1, len(problema) / 70) 
+        alto_estimado = lineas_estimadas * 6
+        if pdf.get_y() + alto_estimado > 180: 
+            pdf.add_page()
+            imprimir_encabezados()
+            pdf.set_font("Arial", '', 9)
+
+        # Guardamos las coordenadas iniciales (X, Y) de la fila
+        x_start = pdf.get_x()
+        y_start = pdf.get_y()
         
-        pdf.set_font("Arial", '', 10)
-        pdf.multi_cell(0, 6, txt=f"Problema: {problema}")
-        pdf.ln(4)
+        # 1. Imprimimos el texto largo primero para ver cuánto espacio hacia abajo (Y) ocupa
+        pdf.set_xy(x_start + w_ticket + w_area + w_resp + w_estado, y_start)
+        pdf.multi_cell(w_prob, 6, problema, border=1)
+        y_end = pdf.get_y()
+        
+        # 2. Calculamos la altura real que tomó la fila
+        row_height = y_end - y_start
+        
+        # 3. Dibujamos el resto de las celdas con la altura exacta para que los bordes cuadren
+        pdf.set_xy(x_start, y_start)
+        pdf.cell(w_ticket, row_height, ticket, border=1, align='C')
+        pdf.cell(w_area, row_height, area, border=1, align='C')
+        pdf.cell(w_resp, row_height, resp, border=1, align='C')
+        pdf.cell(w_estado, row_height, estado, border=1, align='C')
+        
+        # 4. Movemos el cursor listo para la siguiente fila
+        pdf.set_xy(x_start, y_end)
 
     return bytes(pdf.output(dest='S'), 'latin-1')
 
@@ -103,22 +151,22 @@ if not df_activos.empty:
         df_activos[columnas_visibles],
         use_container_width=True,
         hide_index=True,
-        height=600, # <-- ALTURA AJUSTADA PARA MOSTRAR ~15 PROBLEMAS
+        height=600, 
         column_config={
             "ÁREA": st.column_config.TextColumn("Área", width="small"),
-            "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large"), # <-- MAXIMO ESPACIO
+            "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large"), 
             "RESPONSABLE": st.column_config.TextColumn("Responsable", width="small"),
             "ESTADO": st.column_config.TextColumn("Estado", width="small"),
-            "ACCIÓN": st.column_config.LinkColumn("Actualizar", display_text="🔄 Actualizar", width="small") # <-- AJUSTADO AL TEXTO
+            "ACCIÓN": st.column_config.LinkColumn("Actualizar", display_text="🔄 Actualizar", width="small")
         }
     )
     
     # --- BOTÓN DE DESCARGA PDF ---
     pdf_bytes = generar_pdf(df_activos)
     st.download_button(
-        label="📄 Descargar Listado en PDF",
+        label="📄 Descargar Tabla en PDF (Horizontal)",
         data=pdf_bytes,
-        file_name="Listado_Fallos_Activos.pdf",
+        file_name="Reporte_Fallos_Activos.pdf",
         mime="application/pdf",
         use_container_width=True
     )
@@ -136,7 +184,7 @@ with st.expander("✅ VER HISTORIAL DE PROBLEMAS CERRADOS"):
             df_cerrados[columnas_cerrados],
             use_container_width=True,
             hide_index=True,
-            height=600, # <-- ALTURA AJUSTADA PARA MOSTRAR ~15 PROBLEMAS TAMBIÉN AQUÍ
+            height=600, 
             column_config={
                 "ÁREA": st.column_config.TextColumn("Área", width="small"),
                 "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large"),
