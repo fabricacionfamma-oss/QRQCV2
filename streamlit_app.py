@@ -63,7 +63,7 @@ for col in columnas_visibles:
         df[col] = "N/A"
 
 # ==========================================
-# 4. FILTRADO Y FUNCIÓN PDF
+# 4. FILTRADO INICIAL Y FUNCIÓN PDF
 # ==========================================
 es_cerrado = df['ESTADO'].astype(str).str.contains("CIERRE", case=False, na=False)
 
@@ -156,46 +156,68 @@ def generar_pdf(dataframe):
     return bytes(pdf.output(dest='S'), 'latin-1')
 
 # ==========================================
-# 5. INTERFAZ VISUAL (OPTIMIZADA PARA MÓVIL)
+# 5. INTERFAZ VISUAL Y FILTROS DINAÁMICOS
 # ==========================================
 
 st.subheader("📋 Problemas en Curso / Pendientes")
 
 if not df_activos.empty:
-    # Mostramos los últimos 15 registros
-    df_activos_vista = df_activos.head(15)
     
-    # Crear tarjetas visuales adaptables a móvil
-    for index, row in df_activos_vista.iterrows():
-        with st.container(border=True):
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                st.markdown(f"**📍 Área:** {row['ÁREA']}")
+    # --- FILTRO POR RESPONSABLE ---
+    # Obtener lista limpia de responsables (sin "nan")
+    lista_responsables = df_activos['RESPONSABLE'].astype(str).unique().tolist()
+    lista_responsables = sorted([r for r in lista_responsables if r.lower() != 'nan'])
+    
+    # Selector de filtro
+    opciones_filtro = ["Todos"] + lista_responsables
+    filtro_seleccionado = st.selectbox("🔍 Filtrar por Responsable:", opciones_filtro)
+    
+    # Aplicar el filtro a la tabla activa
+    if filtro_seleccionado != "Todos":
+        df_activos = df_activos[df_activos['RESPONSABLE'] == filtro_seleccionado]
+        
+    st.write("") # Espaciador visual
+    
+    # Comprobar si quedó vacía después de filtrar
+    if df_activos.empty:
+        st.info(f"No hay problemas activos asignados a: {filtro_seleccionado}")
+    else:
+        # Mostramos los últimos 15 registros
+        df_activos_vista = df_activos.head(15)
+        
+        # Crear tarjetas visuales adaptables a móvil
+        for index, row in df_activos_vista.iterrows():
+            with st.container(border=True):
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    st.markdown(f"**📍 Área:** {row['ÁREA']}")
+                    
+                    # Limpiamos el 'nan' en la vista de la app también
+                    resp_app = row['RESPONSABLE'] if str(row['RESPONSABLE']).lower() != 'nan' else 'Sin asignar'
+                    st.markdown(f"**👤 Resp:** {resp_app}")
+                    
+                with col2:
+                    st.markdown(f"**📌 Estado:** {row['ESTADO']}")
                 
-                # Limpiamos el 'nan' en la vista de la app también
-                resp_app = row['RESPONSABLE'] if str(row['RESPONSABLE']).lower() != 'nan' else 'Sin asignar'
-                st.markdown(f"**👤 Resp:** {resp_app}")
+                st.error(f"**Descripción del Problema:**\n{row['PROBLEMA']}")
                 
-            with col2:
-                st.markdown(f"**📌 Estado:** {row['ESTADO']}")
+                if row['ACCIÓN']:
+                    st.link_button("🔄 Actualizar Ticket", row['ACCIÓN'], use_container_width=True)
             
-            st.error(f"**Descripción del Problema:**\n{row['PROBLEMA']}")
-            
-            if row['ACCIÓN']:
-                st.link_button("🔄 Actualizar Ticket", row['ACCIÓN'], use_container_width=True)
+            # --- BARRA SEPARADORA ENTRE TARJETAS ---
+            st.divider()
 
-    # Botón de PDF debajo de los problemas
-    st.divider()
-    pdf_bytes = generar_pdf(df_activos)
-    st.download_button(
-        label="📄 Descargar Listado en PDF",
-        data=pdf_bytes,
-        file_name="Reporte_Fallos_Activos.pdf",
-        mime="application/pdf",
-        use_container_width=True,
-        type="primary"
-    )
-    
+        # Botón de PDF debajo de los problemas (descarga los filtrados si se usó el filtro)
+        pdf_bytes = generar_pdf(df_activos)
+        st.download_button(
+            label="📄 Descargar Listado en PDF",
+            data=pdf_bytes,
+            file_name="Reporte_Fallos_Activos.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            type="primary"
+        )
+        
 else:
     st.success("✅ No hay problemas pendientes en este momento.")
 
@@ -211,5 +233,6 @@ with st.expander("✅ VER HISTORIAL DE PROBLEMAS CERRADOS"):
                 resp_app = row['RESPONSABLE'] if str(row['RESPONSABLE']).lower() != 'nan' else '-'
                 st.markdown(f"**📍 Área:** {row['ÁREA']} | **👤 Resp:** {resp_app}")
                 st.success(f"**Problema Resuelto:**\n{row['PROBLEMA']}")
+            st.divider() # Barra separadora también en el historial
     else:
         st.write("Aún no hay registros marcados como 'CIERRE'.")
