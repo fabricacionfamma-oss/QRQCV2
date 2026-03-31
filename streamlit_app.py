@@ -10,15 +10,15 @@ st.set_page_config(page_title="Tablero QRQC", layout="centered")
 # Enlaces de Google
 url_ingresos = "https://docs.google.com/spreadsheets/d/1xw4aqqpf6pWDa9LQSmS3ztLiF82n-ZQ0NqY3QRVTTFg/edit"
 url_form_nuevo = "https://docs.google.com/forms/d/e/1FAIpQLSe9AHzNLjUkg3tdfbsUopdc8_YldXLk4YbGXYaeNKyWA198vQ/viewform"
+url_base_form_actualizacion = "https://docs.google.com/forms/d/e/1FAIpQLSfppxJI7lPOKbFQZwsDzTBYdv4hWq3QN9ImKCkAvmVCLV0wDw/viewform?entry.1541179458="
 
 st.title("🏭 Tablero de Control QRQC")
 
-# --- BOTÓN PARA INGRESAR NUEVO PROBLEMA ---
+# Botón principal para nuevo ingreso
 st.link_button("➕ INGRESAR NUEVO TICKET / PROBLEMA", url_form_nuevo, use_container_width=True, type="primary")
 
 st.divider()
 
-# Botón de actualización manual
 if st.button("🔄 Actualizar Tabla de Datos", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
@@ -29,7 +29,6 @@ if st.button("🔄 Actualizar Tabla de Datos", use_container_width=True):
 conn = st.connection("gsheets", type=GSheetsConnection)
 df = conn.read(spreadsheet=url_ingresos, ttl=300)
 
-# Limpieza básica
 df.columns = df.columns.str.strip()
 
 if df.empty:
@@ -39,7 +38,7 @@ if df.empty:
 # ==========================================
 # 3. PROCESAMIENTO Y COLUMNAS
 # ==========================================
-# Mapeo exacto según tus columnas del Formulario
+# Mapeo de columnas
 mapeo_columnas = {
     'AREA': 'ÁREA',
     'DESCRIPCION DE FALLA': 'PROBLEMA',
@@ -49,10 +48,18 @@ mapeo_columnas = {
 
 df = df.rename(columns=mapeo_columnas)
 
-# Columnas que vamos a mostrar
-columnas_visibles = ['ÁREA', 'PROBLEMA', 'RESPONSABLE', 'ESTADO']
+# Generar el link de actualización si existe el N° DE TICKET
+if 'N° DE TICKET' in df.columns:
+    # Limpiamos el número por si Google Sheets lo trae como decimal (ej: 105.0)
+    df['N° DE TICKET'] = df['N° DE TICKET'].astype(str).str.replace('.0', '', regex=False).str.strip()
+    # Creamos la columna con el enlace final
+    df['ACCIÓN'] = url_base_form_actualizacion + df['N° DE TICKET']
+else:
+    df['ACCIÓN'] = None
 
-# Asegurar que existan (por seguridad)
+# Columnas que vamos a mostrar (ahora son 5)
+columnas_visibles = ['ÁREA', 'PROBLEMA', 'RESPONSABLE', 'ESTADO', 'ACCIÓN']
+
 for col in columnas_visibles:
     if col not in df.columns:
         df[col] = "N/A"
@@ -60,7 +67,6 @@ for col in columnas_visibles:
 # ==========================================
 # 4. FILTRADO (ACTIVOS VS CERRADOS)
 # ==========================================
-# Consideramos "Cerrado" si el estado contiene la palabra "CIERRE"
 es_cerrado = df['ESTADO'].astype(str).str.contains("CIERRE", case=False, na=False)
 
 df_activos = df[~es_cerrado].copy()
@@ -78,8 +84,11 @@ if not df_activos.empty:
         use_container_width=True,
         hide_index=True,
         column_config={
+            "ÁREA": st.column_config.TextColumn("Área", width="small"),
             "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large"),
-            "ESTADO": st.column_config.TextColumn("Estado", width="small")
+            "RESPONSABLE": st.column_config.TextColumn("Responsable", width="small"),
+            "ESTADO": st.column_config.TextColumn("Estado", width="small"),
+            "ACCIÓN": st.column_config.LinkColumn("Actualizar", display_text="🔄 Actualizar")
         }
     )
 else:
@@ -90,8 +99,10 @@ st.divider()
 # --- SECCIÓN 2: PROBLEMAS CERRADOS ---
 with st.expander("✅ VER HISTORIAL DE PROBLEMAS CERRADOS"):
     if not df_cerrados.empty:
+        # Para los cerrados, quitamos la columna 'ACCIÓN' porque ya no hace falta actualizarlos
+        columnas_cerrados = ['ÁREA', 'PROBLEMA', 'RESPONSABLE', 'ESTADO']
         st.dataframe(
-            df_cerrados[columnas_visibles],
+            df_cerrados[columnas_cerrados],
             use_container_width=True,
             hide_index=True,
             column_config={
