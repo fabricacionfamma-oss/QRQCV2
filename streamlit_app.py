@@ -5,17 +5,23 @@ from streamlit_gsheets import GSheetsConnection
 # ==========================================
 # 1. CONFIGURACIÓN INICIAL
 # ==========================================
-st.set_page_config(page_title="Listado de Problemas", layout="centered")
-st.title("📋 Listado de Problemas")
+st.set_page_config(page_title="Tablero QRQC", layout="centered")
 
-# Enlace a la hoja principal
+# Enlaces de Google
 url_ingresos = "https://docs.google.com/spreadsheets/d/1xw4aqqpf6pWDa9LQSmS3ztLiF82n-ZQ0NqY3QRVTTFg/edit"
+url_form_nuevo = "https://docs.google.com/forms/d/e/1FAIpQLSe9AHzNLjUkg3tdfbsUopdc8_YldXLk4YbGXYaeNKyWA198vQ/viewform"
 
-if st.button("🔄 Actualizar Datos", type="primary"):
-    st.cache_data.clear()
-    st.rerun()
+st.title("🏭 Tablero de Control QRQC")
+
+# --- BOTÓN PARA INGRESAR NUEVO PROBLEMA ---
+st.link_button("➕ INGRESAR NUEVO TICKET / PROBLEMA", url_form_nuevo, use_container_width=True, type="primary")
 
 st.divider()
+
+# Botón de actualización manual
+if st.button("🔄 Actualizar Tabla de Datos", use_container_width=True):
+    st.cache_data.clear()
+    st.rerun()
 
 # ==========================================
 # 2. CONEXIÓN Y LECTURA DE DATOS
@@ -23,49 +29,74 @@ st.divider()
 conn = st.connection("gsheets", type=GSheetsConnection)
 df = conn.read(spreadsheet=url_ingresos, ttl=300)
 
-# Limpiar espacios en los nombres de las columnas
+# Limpieza básica
 df.columns = df.columns.str.strip()
 
 if df.empty:
-    st.warning("No hay datos cargados en el formulario todavía.")
+    st.warning("No hay datos registrados en el sistema.")
     st.stop()
 
 # ==========================================
-# 3. PROCESAMIENTO Y FILTRADO DE COLUMNAS
+# 3. PROCESAMIENTO Y COLUMNAS
 # ==========================================
-# Mapeamos los nombres EXACTOS de tu Google Sheet a los nombres limpios para la tabla.
+# Mapeo exacto según tus columnas del Formulario
 mapeo_columnas = {
     'AREA': 'ÁREA',
     'DESCRIPCION DE FALLA': 'PROBLEMA',
     'QUE AREA ES RESPONSABLE DE EL PROBLEMA?': 'RESPONSABLE',
-    'MOTIVO DE LA CARGA': 'ESTADO' 
+    'MOTIVO DE LA CARGA': 'ESTADO'
 }
 
-# Renombramos las columnas
 df = df.rename(columns=mapeo_columnas)
 
-# Definimos las 4 columnas estrictas que solicitaste
-columnas_finales = ['ÁREA', 'PROBLEMA', 'RESPONSABLE', 'ESTADO']
+# Columnas que vamos a mostrar
+columnas_visibles = ['ÁREA', 'PROBLEMA', 'RESPONSABLE', 'ESTADO']
 
-# Escudo protector: Si falta alguna columna, la rellenamos para evitar errores
-for col in columnas_finales:
+# Asegurar que existan (por seguridad)
+for col in columnas_visibles:
     if col not in df.columns:
-        if col == 'ESTADO':
-            df[col] = 'Pendiente'
-        else:
-            df[col] = 'Sin asignar'
+        df[col] = "N/A"
 
 # ==========================================
-# 4. INTERFAZ VISUAL (LA TABLA)
+# 4. FILTRADO (ACTIVOS VS CERRADOS)
 # ==========================================
-st.dataframe(
-    df[columnas_finales],
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "ÁREA": st.column_config.TextColumn("Área", width="medium"),
-        "PROBLEMA": st.column_config.TextColumn("Problema", width="large"),
-        "RESPONSABLE": st.column_config.TextColumn("Responsable", width="medium"),
-        "ESTADO": st.column_config.TextColumn("Estado", width="small")
-    }
-)
+# Consideramos "Cerrado" si el estado contiene la palabra "CIERRE"
+es_cerrado = df['ESTADO'].astype(str).str.contains("CIERRE", case=False, na=False)
+
+df_activos = df[~es_cerrado].copy()
+df_cerrados = df[es_cerrado].copy()
+
+# ==========================================
+# 5. INTERFAZ VISUAL
+# ==========================================
+
+# --- SECCIÓN 1: PROBLEMAS ACTIVOS ---
+st.subheader("📋 Problemas en Curso / Pendientes")
+if not df_activos.empty:
+    st.dataframe(
+        df_activos[columnas_visibles],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large"),
+            "ESTADO": st.column_config.TextColumn("Estado", width="small")
+        }
+    )
+else:
+    st.success("✅ No hay problemas pendientes en este momento.")
+
+st.divider()
+
+# --- SECCIÓN 2: PROBLEMAS CERRADOS ---
+with st.expander("✅ VER HISTORIAL DE PROBLEMAS CERRADOS"):
+    if not df_cerrados.empty:
+        st.dataframe(
+            df_cerrados[columnas_visibles],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large")
+            }
+        )
+    else:
+        st.write("Aún no hay registros marcados como 'CIERRE'.")
