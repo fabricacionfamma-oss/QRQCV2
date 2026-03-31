@@ -8,18 +8,19 @@ from fpdf import FPDF
 # ==========================================
 st.set_page_config(page_title="Tablero QRQC", layout="centered")
 
-# Enlaces de Google
+# Enlaces definitivos de Google
 url_ingresos = "https://docs.google.com/spreadsheets/d/1xw4aqqpf6pWDa9LQSmS3ztLiF82n-ZQ0NqY3QRVTTFg/edit"
 url_form_nuevo = "https://docs.google.com/forms/d/e/1FAIpQLSe9AHzNLjUkg3tdfbsUopdc8_YldXLk4YbGXYaeNKyWA198vQ/viewform"
 url_base_form_actualizacion = "https://docs.google.com/forms/d/e/1FAIpQLSfppxJI7lPOKbFQZwsDzTBYdv4hWq3QN9ImKCkAvmVCLV0wDw/viewform?entry.1541179458="
 
 st.title("🏭 Tablero de Control QRQC")
 
+# Botones principales
 st.link_button("➕ INGRESAR NUEVO TICKET / PROBLEMA", url_form_nuevo, use_container_width=True, type="primary")
 
 st.divider()
 
-if st.button("🔄 Actualizar Tabla de Datos", use_container_width=True):
+if st.button("🔄 Actualizar Datos Ahora", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
@@ -47,6 +48,7 @@ mapeo_columnas = {
 
 df = df.rename(columns=mapeo_columnas)
 
+# Generar el enlace de actualización basado en el N° de Ticket
 if 'N° DE TICKET' in df.columns:
     df['N° DE TICKET'] = df['N° DE TICKET'].astype(str).str.replace('.0', '', regex=False).str.strip()
     df['ACCIÓN'] = url_base_form_actualizacion + df['N° DE TICKET']
@@ -55,12 +57,13 @@ else:
 
 columnas_visibles = ['ÁREA', 'PROBLEMA', 'RESPONSABLE', 'ESTADO', 'ACCIÓN']
 
+# Rellenar columnas faltantes por seguridad
 for col in columnas_visibles:
     if col not in df.columns:
         df[col] = "N/A"
 
 # ==========================================
-# 4. FILTRADO Y GENERACIÓN DE PDF HORIZONTAL
+# 4. FILTRADO Y FUNCIÓN PDF
 # ==========================================
 es_cerrado = df['ESTADO'].astype(str).str.contains("CIERRE", case=False, na=False)
 
@@ -68,27 +71,25 @@ df_activos = df[~es_cerrado].copy()
 df_cerrados = df[es_cerrado].copy()
 
 def generar_pdf(dataframe):
-    # Crear PDF en formato 'L' (Landscape / Horizontal)
     pdf = FPDF(orientation='L', unit='mm', format='A4')
-    pdf.set_auto_page_break(auto=False) # Manejamos los saltos de página manualmente para la tabla
+    pdf.set_auto_page_break(auto=False) 
     pdf.add_page()
     
-    # Título Principal
+    # Título del PDF
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, txt="Listado de Fallos / Problemas Activos", ln=True, align='C')
     pdf.ln(5)
     
-    # Configuración de anchos de columnas (Total ~277mm para ocupar toda la hoja horizontal)
-    w_ticket = 25
-    w_area = 40
-    w_resp = 40
-    w_estado = 32
-    w_prob = 140
+    # Anchos de las columnas en el PDF
+    w_ticket = 18
+    w_area = 45
+    w_resp = 35
+    w_estado = 25
+    w_prob = 154
     
-    # Función interna para imprimir los encabezados de la tabla
     def imprimir_encabezados():
         pdf.set_font("Arial", 'B', 10)
-        pdf.set_fill_color(220, 220, 220) # Fondo gris claro
+        pdf.set_fill_color(220, 220, 220) 
         pdf.cell(w_ticket, 8, "Ticket", border=1, fill=True, align='C')
         pdf.cell(w_area, 8, "Área", border=1, fill=True, align='C')
         pdf.cell(w_resp, 8, "Responsable", border=1, fill=True, align='C')
@@ -100,75 +101,99 @@ def generar_pdf(dataframe):
     pdf.set_font("Arial", '', 9)
     
     for index, row in dataframe.iterrows():
-        # Limpieza de textos para la librería FPDF
+        # Limpieza de textos y eliminación de "nan"
         area = str(row['ÁREA']).encode('latin-1', 'replace').decode('latin-1')
         resp = str(row['RESPONSABLE']).encode('latin-1', 'replace').decode('latin-1')
+        if resp.lower() == 'nan': resp = '-'
         estado = str(row['ESTADO']).encode('latin-1', 'replace').decode('latin-1')
         problema = str(row['PROBLEMA']).encode('latin-1', 'replace').decode('latin-1')
         ticket = str(row.get('N° DE TICKET', 'S/N')).encode('latin-1', 'replace').decode('latin-1')
+        if ticket.lower() == 'nan': ticket = '-'
 
-        # Control de salto de página (Si estamos muy cerca del borde inferior, ~180mm)
-        lineas_estimadas = max(1, len(problema) / 70) 
+        # Salto de página automático
+        lineas_estimadas = max(len(problema) / 80, len(area) / 25, 1) 
         alto_estimado = lineas_estimadas * 6
-        if pdf.get_y() + alto_estimado > 180: 
+        if pdf.get_y() + alto_estimado > 185: 
             pdf.add_page()
             imprimir_encabezados()
             pdf.set_font("Arial", '', 9)
 
-        # Guardamos las coordenadas iniciales (X, Y) de la fila
         x_start = pdf.get_x()
         y_start = pdf.get_y()
         
-        # 1. Imprimimos el texto largo primero para ver cuánto espacio hacia abajo (Y) ocupa
+        # Textos multilínea (Área y Problema)
+        pdf.set_xy(x_start + w_ticket, y_start)
+        pdf.multi_cell(w_area, 6, area, border=0, align='C')
+        y_area = pdf.get_y()
+        
         pdf.set_xy(x_start + w_ticket + w_area + w_resp + w_estado, y_start)
-        pdf.multi_cell(w_prob, 6, problema, border=1)
-        y_end = pdf.get_y()
+        pdf.multi_cell(w_prob, 6, problema, border=0, align='L')
+        y_prob = pdf.get_y()
         
-        # 2. Calculamos la altura real que tomó la fila
-        row_height = y_end - y_start
+        # Calcular altura final de la fila
+        max_y = max(y_area, y_prob, y_start + 6)
+        row_height = max_y - y_start
         
-        # 3. Dibujamos el resto de las celdas con la altura exacta para que los bordes cuadren
+        # Textos de 1 sola línea
         pdf.set_xy(x_start, y_start)
-        pdf.cell(w_ticket, row_height, ticket, border=1, align='C')
-        pdf.cell(w_area, row_height, area, border=1, align='C')
-        pdf.cell(w_resp, row_height, resp, border=1, align='C')
-        pdf.cell(w_estado, row_height, estado, border=1, align='C')
+        pdf.cell(w_ticket, row_height, ticket, border=0, align='C')
         
-        # 4. Movemos el cursor listo para la siguiente fila
-        pdf.set_xy(x_start, y_end)
+        pdf.set_xy(x_start + w_ticket + w_area, y_start)
+        pdf.cell(w_resp, row_height, resp, border=0, align='C')
+        
+        pdf.set_xy(x_start + w_ticket + w_area + w_resp, y_start)
+        pdf.cell(w_estado, row_height, estado, border=0, align='C')
+        
+        # Dibujar los bordes de la tabla
+        pdf.rect(x_start, y_start, w_ticket, row_height)
+        pdf.rect(x_start + w_ticket, y_start, w_area, row_height)
+        pdf.rect(x_start + w_ticket + w_area, y_start, w_resp, row_height)
+        pdf.rect(x_start + w_ticket + w_area + w_resp, y_start, w_estado, row_height)
+        pdf.rect(x_start + w_ticket + w_area + w_resp + w_estado, y_start, w_prob, row_height)
+        
+        pdf.set_xy(x_start, max_y)
 
     return bytes(pdf.output(dest='S'), 'latin-1')
 
 # ==========================================
-# 5. INTERFAZ VISUAL
+# 5. INTERFAZ VISUAL (OPTIMIZADA PARA MÓVIL)
 # ==========================================
 
-# --- SECCIÓN 1: PROBLEMAS ACTIVOS ---
 st.subheader("📋 Problemas en Curso / Pendientes")
 
 if not df_activos.empty:
-    st.dataframe(
-        df_activos[columnas_visibles],
-        use_container_width=True,
-        hide_index=True,
-        height=600, 
-        column_config={
-            "ÁREA": st.column_config.TextColumn("Área", width="small"),
-            "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large"), 
-            "RESPONSABLE": st.column_config.TextColumn("Responsable", width="small"),
-            "ESTADO": st.column_config.TextColumn("Estado", width="small"),
-            "ACCIÓN": st.column_config.LinkColumn("Actualizar", display_text="🔄 Actualizar", width="small")
-        }
-    )
+    # Mostramos los últimos 15 registros
+    df_activos_vista = df_activos.head(15)
     
-    # --- BOTÓN DE DESCARGA PDF ---
+    # Crear tarjetas visuales adaptables a móvil
+    for index, row in df_activos_vista.iterrows():
+        with st.container(border=True):
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                st.markdown(f"**📍 Área:** {row['ÁREA']}")
+                
+                # Limpiamos el 'nan' en la vista de la app también
+                resp_app = row['RESPONSABLE'] if str(row['RESPONSABLE']).lower() != 'nan' else 'Sin asignar'
+                st.markdown(f"**👤 Resp:** {resp_app}")
+                
+            with col2:
+                st.markdown(f"**📌 Estado:** {row['ESTADO']}")
+            
+            st.error(f"**Descripción del Problema:**\n{row['PROBLEMA']}")
+            
+            if row['ACCIÓN']:
+                st.link_button("🔄 Actualizar Ticket", row['ACCIÓN'], use_container_width=True)
+
+    # Botón de PDF debajo de los problemas
+    st.divider()
     pdf_bytes = generar_pdf(df_activos)
     st.download_button(
-        label="📄 Descargar Tabla en PDF (Horizontal)",
+        label="📄 Descargar Listado en PDF",
         data=pdf_bytes,
         file_name="Reporte_Fallos_Activos.pdf",
         mime="application/pdf",
-        use_container_width=True
+        use_container_width=True,
+        type="primary"
     )
     
 else:
@@ -176,21 +201,15 @@ else:
 
 st.divider()
 
-# --- SECCIÓN 2: PROBLEMAS CERRADOS ---
+# --- SECCIÓN 2: HISTORIAL DE CERRADOS ---
 with st.expander("✅ VER HISTORIAL DE PROBLEMAS CERRADOS"):
     if not df_cerrados.empty:
-        columnas_cerrados = ['ÁREA', 'PROBLEMA', 'RESPONSABLE', 'ESTADO']
-        st.dataframe(
-            df_cerrados[columnas_cerrados],
-            use_container_width=True,
-            hide_index=True,
-            height=600, 
-            column_config={
-                "ÁREA": st.column_config.TextColumn("Área", width="small"),
-                "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large"),
-                "RESPONSABLE": st.column_config.TextColumn("Responsable", width="small"),
-                "ESTADO": st.column_config.TextColumn("Estado", width="small")
-            }
-        )
+        df_cerrados_vista = df_cerrados.head(15)
+        
+        for index, row in df_cerrados_vista.iterrows():
+            with st.container(border=True):
+                resp_app = row['RESPONSABLE'] if str(row['RESPONSABLE']).lower() != 'nan' else '-'
+                st.markdown(f"**📍 Área:** {row['ÁREA']} | **👤 Resp:** {resp_app}")
+                st.success(f"**Problema Resuelto:**\n{row['PROBLEMA']}")
     else:
         st.write("Aún no hay registros marcados como 'CIERRE'.")
