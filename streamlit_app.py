@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
+from fpdf import FPDF
 
 # ==========================================
 # 1. CONFIGURACIÓN INICIAL
@@ -14,7 +15,6 @@ url_base_form_actualizacion = "https://docs.google.com/forms/d/e/1FAIpQLSfppxJI7
 
 st.title("🏭 Tablero de Control QRQC")
 
-# Botón principal para nuevo ingreso
 st.link_button("➕ INGRESAR NUEVO TICKET / PROBLEMA", url_form_nuevo, use_container_width=True, type="primary")
 
 st.divider()
@@ -38,7 +38,6 @@ if df.empty:
 # ==========================================
 # 3. PROCESAMIENTO Y COLUMNAS
 # ==========================================
-# Mapeo de columnas
 mapeo_columnas = {
     'AREA': 'ÁREA',
     'DESCRIPCION DE FALLA': 'PROBLEMA',
@@ -48,16 +47,12 @@ mapeo_columnas = {
 
 df = df.rename(columns=mapeo_columnas)
 
-# Generar el link de actualización si existe el N° DE TICKET
 if 'N° DE TICKET' in df.columns:
-    # Limpiamos el número por si Google Sheets lo trae como decimal (ej: 105.0)
     df['N° DE TICKET'] = df['N° DE TICKET'].astype(str).str.replace('.0', '', regex=False).str.strip()
-    # Creamos la columna con el enlace final
     df['ACCIÓN'] = url_base_form_actualizacion + df['N° DE TICKET']
 else:
     df['ACCIÓN'] = None
 
-# Columnas que vamos a mostrar (ahora son 5)
 columnas_visibles = ['ÁREA', 'PROBLEMA', 'RESPONSABLE', 'ESTADO', 'ACCIÓN']
 
 for col in columnas_visibles:
@@ -65,12 +60,43 @@ for col in columnas_visibles:
         df[col] = "N/A"
 
 # ==========================================
-# 4. FILTRADO (ACTIVOS VS CERRADOS)
+# 4. FILTRADO Y GENERACIÓN DE PDF
 # ==========================================
 es_cerrado = df['ESTADO'].astype(str).str.contains("CIERRE", case=False, na=False)
 
 df_activos = df[~es_cerrado].copy()
 df_cerrados = df[es_cerrado].copy()
+
+# Función para crear el PDF estructurado
+def generar_pdf(dataframe):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Título
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt="Listado de Fallos / Problemas Activos", ln=True, align='C')
+    pdf.ln(5)
+    
+    # Recorrer las filas y agregarlas al PDF
+    for index, row in dataframe.iterrows():
+        # Limpieza de textos para evitar errores con tildes o eñes en la librería FPDF
+        area = str(row['ÁREA']).encode('latin-1', 'replace').decode('latin-1')
+        resp = str(row['RESPONSABLE']).encode('latin-1', 'replace').decode('latin-1')
+        estado = str(row['ESTADO']).encode('latin-1', 'replace').decode('latin-1')
+        problema = str(row['PROBLEMA']).encode('latin-1', 'replace').decode('latin-1')
+        ticket = str(row.get('N° DE TICKET', 'S/N')).encode('latin-1', 'replace').decode('latin-1')
+
+        # Encabezado del fallo
+        pdf.set_font("Arial", 'B', 11)
+        pdf.cell(0, 6, txt=f"Ticket: {ticket} | Área: {area} | Resp: {resp} | Estado: {estado}", ln=True)
+        
+        # Descripción del fallo
+        pdf.set_font("Arial", '', 10)
+        pdf.multi_cell(0, 6, txt=f"Problema: {problema}")
+        pdf.ln(4) # Espacio entre fallos
+
+    # Retornar el archivo en formato de bytes
+    return bytes(pdf.output(dest='S'), 'latin-1')
 
 # ==========================================
 # 5. INTERFAZ VISUAL
@@ -78,6 +104,7 @@ df_cerrados = df[es_cerrado].copy()
 
 # --- SECCIÓN 1: PROBLEMAS ACTIVOS ---
 st.subheader("📋 Problemas en Curso / Pendientes")
+
 if not df_activos.empty:
     st.dataframe(
         df_activos[columnas_visibles],
@@ -91,6 +118,17 @@ if not df_activos.empty:
             "ACCIÓN": st.column_config.LinkColumn("Actualizar", display_text="🔄 Actualizar")
         }
     )
+    
+    # --- BOTÓN DE DESCARGA PDF ---
+    pdf_bytes = generar_pdf(df_activos)
+    st.download_button(
+        label="📄 Descargar Listado en PDF",
+        data=pdf_bytes,
+        file_name="Listado_Fallos_Activos.pdf",
+        mime="application/pdf",
+        use_container_width=True
+    )
+    
 else:
     st.success("✅ No hay problemas pendientes en este momento.")
 
@@ -99,7 +137,6 @@ st.divider()
 # --- SECCIÓN 2: PROBLEMAS CERRADOS ---
 with st.expander("✅ VER HISTORIAL DE PROBLEMAS CERRADOS"):
     if not df_cerrados.empty:
-        # Para los cerrados, quitamos la columna 'ACCIÓN' porque ya no hace falta actualizarlos
         columnas_cerrados = ['ÁREA', 'PROBLEMA', 'RESPONSABLE', 'ESTADO']
         st.dataframe(
             df_cerrados[columnas_cerrados],
