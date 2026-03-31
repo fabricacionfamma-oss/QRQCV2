@@ -67,35 +67,28 @@ es_cerrado = df['ESTADO'].astype(str).str.contains("CIERRE", case=False, na=Fals
 df_activos = df[~es_cerrado].copy()
 df_cerrados = df[es_cerrado].copy()
 
-# Función para crear el PDF estructurado
 def generar_pdf(dataframe):
     pdf = FPDF()
     pdf.add_page()
     
-    # Título
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(200, 10, txt="Listado de Fallos / Problemas Activos", ln=True, align='C')
     pdf.ln(5)
     
-    # Recorrer las filas y agregarlas al PDF
     for index, row in dataframe.iterrows():
-        # Limpieza de textos para evitar errores con tildes o eñes en la librería FPDF
         area = str(row['ÁREA']).encode('latin-1', 'replace').decode('latin-1')
         resp = str(row['RESPONSABLE']).encode('latin-1', 'replace').decode('latin-1')
         estado = str(row['ESTADO']).encode('latin-1', 'replace').decode('latin-1')
         problema = str(row['PROBLEMA']).encode('latin-1', 'replace').decode('latin-1')
         ticket = str(row.get('N° DE TICKET', 'S/N')).encode('latin-1', 'replace').decode('latin-1')
 
-        # Encabezado del fallo
         pdf.set_font("Arial", 'B', 11)
         pdf.cell(0, 6, txt=f"Ticket: {ticket} | Área: {area} | Resp: {resp} | Estado: {estado}", ln=True)
         
-        # Descripción del fallo
         pdf.set_font("Arial", '', 10)
         pdf.multi_cell(0, 6, txt=f"Problema: {problema}")
-        pdf.ln(4) # Espacio entre fallos
+        pdf.ln(4)
 
-    # Retornar el archivo en formato de bytes
     return bytes(pdf.output(dest='S'), 'latin-1')
 
 # ==========================================
@@ -110,12 +103,13 @@ if not df_activos.empty:
         df_activos[columnas_visibles],
         use_container_width=True,
         hide_index=True,
+        height=600, # <-- ALTURA AJUSTADA PARA MOSTRAR ~15 PROBLEMAS
         column_config={
             "ÁREA": st.column_config.TextColumn("Área", width="small"),
-            "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large"),
+            "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large"), # <-- MAXIMO ESPACIO
             "RESPONSABLE": st.column_config.TextColumn("Responsable", width="small"),
             "ESTADO": st.column_config.TextColumn("Estado", width="small"),
-            "ACCIÓN": st.column_config.LinkColumn("Actualizar", display_text="🔄 Actualizar")
+            "ACCIÓN": st.column_config.LinkColumn("Actualizar", display_text="🔄 Actualizar", width="small") # <-- AJUSTADO AL TEXTO
         }
     )
     
@@ -142,8 +136,12 @@ with st.expander("✅ VER HISTORIAL DE PROBLEMAS CERRADOS"):
             df_cerrados[columnas_cerrados],
             use_container_width=True,
             hide_index=True,
+            height=600, # <-- ALTURA AJUSTADA PARA MOSTRAR ~15 PROBLEMAS TAMBIÉN AQUÍ
             column_config={
-                "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large")
+                "ÁREA": st.column_config.TextColumn("Área", width="small"),
+                "PROBLEMA": st.column_config.TextColumn("Descripción del Problema", width="large"),
+                "RESPONSABLE": st.column_config.TextColumn("Responsable", width="small"),
+                "ESTADO": st.column_config.TextColumn("Estado", width="small")
             }
         )
     else:
