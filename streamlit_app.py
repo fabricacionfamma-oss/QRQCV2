@@ -1,3 +1,20 @@
+¡Por supuesto! Aquí tienes el código completo y unificado con absolutamente todas las mejoras que implementamos:
+
+Lectura en vivo de Google Sheets.
+
+Diseño de "tarjetas" adaptables para el móvil (sin cortes de texto).
+
+Scroll vertical interno (para mostrar todos los problemas sin alargar la página al infinito).
+
+Filtro dinámico por Responsable.
+
+Descarga de reporte en PDF horizontal estilo tabla (que respeta el filtro que elijas y limpia los "nan").
+
+Links directos al formulario de actualización por cada ticket.
+
+Puedes copiar este bloque entero y reemplazar todo el contenido de tu archivo app.py:
+
+Python
 import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
@@ -156,7 +173,7 @@ def generar_pdf(dataframe):
     return bytes(pdf.output(dest='S'), 'latin-1')
 
 # ==========================================
-# 5. INTERFAZ VISUAL Y FILTROS DINAÁMICOS
+# 5. INTERFAZ VISUAL Y FILTROS DINÁMICOS
 # ==========================================
 
 st.subheader("📋 Problemas en Curso / Pendientes")
@@ -164,50 +181,43 @@ st.subheader("📋 Problemas en Curso / Pendientes")
 if not df_activos.empty:
     
     # --- FILTRO POR RESPONSABLE ---
-    # Obtener lista limpia de responsables (sin "nan")
     lista_responsables = df_activos['RESPONSABLE'].astype(str).unique().tolist()
     lista_responsables = sorted([r for r in lista_responsables if r.lower() != 'nan'])
     
-    # Selector de filtro
     opciones_filtro = ["Todos"] + lista_responsables
     filtro_seleccionado = st.selectbox("🔍 Filtrar por Responsable:", opciones_filtro)
     
-    # Aplicar el filtro a la tabla activa
+    # Aplicar el filtro a la vista
     if filtro_seleccionado != "Todos":
         df_activos = df_activos[df_activos['RESPONSABLE'] == filtro_seleccionado]
         
     st.write("") # Espaciador visual
     
-    # Comprobar si quedó vacía después de filtrar
     if df_activos.empty:
         st.info(f"No hay problemas activos asignados a: {filtro_seleccionado}")
     else:
-        # Mostramos los últimos 15 registros
-        df_activos_vista = df_activos.head(15)
+        st.caption(f"Mostrando {len(df_activos)} problemas activos.")
         
-        # Crear tarjetas visuales adaptables a móvil
-        for index, row in df_activos_vista.iterrows():
-            with st.container(border=True):
-                col1, col2 = st.columns([2, 1])
-                with col1:
-                    st.markdown(f"**📍 Área:** {row['ÁREA']}")
+        # --- CONTENEDOR CON SCROLL (Altura fija, carga todos los registros) ---
+        with st.container(height=600, border=False):
+            for index, row in df_activos.iterrows():
+                with st.container(border=True):
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        st.markdown(f"**📍 Área:** {row['ÁREA']}")
+                        resp_app = row['RESPONSABLE'] if str(row['RESPONSABLE']).lower() != 'nan' else 'Sin asignar'
+                        st.markdown(f"**👤 Resp:** {resp_app}")
+                        
+                    with col2:
+                        st.markdown(f"**📌 Estado:** {row['ESTADO']}")
                     
-                    # Limpiamos el 'nan' en la vista de la app también
-                    resp_app = row['RESPONSABLE'] if str(row['RESPONSABLE']).lower() != 'nan' else 'Sin asignar'
-                    st.markdown(f"**👤 Resp:** {resp_app}")
+                    st.error(f"**Descripción del Problema:**\n{row['PROBLEMA']}")
                     
-                with col2:
-                    st.markdown(f"**📌 Estado:** {row['ESTADO']}")
-                
-                st.error(f"**Descripción del Problema:**\n{row['PROBLEMA']}")
-                
-                if row['ACCIÓN']:
-                    st.link_button("🔄 Actualizar Ticket", row['ACCIÓN'], use_container_width=True)
-            
-            # --- BARRA SEPARADORA ENTRE TARJETAS ---
-            st.divider()
+                    if row['ACCIÓN']:
+                        st.link_button("🔄 Actualizar Ticket", row['ACCIÓN'], use_container_width=True)
 
-        # Botón de PDF debajo de los problemas (descarga los filtrados si se usó el filtro)
+        # --- BOTÓN DE DESCARGA PDF ---
+        st.divider()
         pdf_bytes = generar_pdf(df_activos)
         st.download_button(
             label="📄 Descargar Listado en PDF",
@@ -226,13 +236,14 @@ st.divider()
 # --- SECCIÓN 2: HISTORIAL DE CERRADOS ---
 with st.expander("✅ VER HISTORIAL DE PROBLEMAS CERRADOS"):
     if not df_cerrados.empty:
-        df_cerrados_vista = df_cerrados.head(15)
+        st.caption(f"Mostrando {len(df_cerrados)} problemas cerrados.")
         
-        for index, row in df_cerrados_vista.iterrows():
-            with st.container(border=True):
-                resp_app = row['RESPONSABLE'] if str(row['RESPONSABLE']).lower() != 'nan' else '-'
-                st.markdown(f"**📍 Área:** {row['ÁREA']} | **👤 Resp:** {resp_app}")
-                st.success(f"**Problema Resuelto:**\n{row['PROBLEMA']}")
-            st.divider() # Barra separadora también en el historial
+        # Contenedor con scroll también para el historial
+        with st.container(height=500, border=False):
+            for index, row in df_cerrados.iterrows():
+                with st.container(border=True):
+                    resp_app = row['RESPONSABLE'] if str(row['RESPONSABLE']).lower() != 'nan' else '-'
+                    st.markdown(f"**📍 Área:** {row['ÁREA']} | **👤 Resp:** {resp_app}")
+                    st.success(f"**Problema Resuelto:**\n{row['PROBLEMA']}")
     else:
         st.write("Aún no hay registros marcados como 'CIERRE'.")
