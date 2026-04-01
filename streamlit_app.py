@@ -4,6 +4,7 @@ from streamlit_gsheets import GSheetsConnection
 from fpdf import FPDF
 import urllib.parse
 import io  
+import math
 
 # ==========================================
 # 1. CONFIGURACIÓN INICIAL Y CSS
@@ -57,7 +58,6 @@ if 'N° DE TICKET' in df.columns:
     df['N° DE TICKET'] = df['N° DE TICKET'].astype(str).str.replace('.0', '', regex=False).str.strip()
     df = df[df['N° DE TICKET'] != 'nan']
     
-    # Parsear fechas ANTES de agrupar para evitar errores
     if 'FECHA_INICIO' in df.columns:
         df['FECHA_INICIO'] = pd.to_datetime(df['FECHA_INICIO'], errors='coerce', dayfirst=True)
     else:
@@ -68,16 +68,11 @@ if 'N° DE TICKET' in df.columns:
     else:
         df['FECHA DE CIERRE'] = pd.NaT
 
-    # 1. Rescatamos la PRIMERA fecha de ingreso de cada ticket
     primeras_fechas_inicio = df.groupby('N° DE TICKET')['FECHA_INICIO'].min()
-    
-    # 2. Nos quedamos con el ÚLTIMO registro (para que traiga el cierre, estado actual, etc.)
     df = df.drop_duplicates(subset=['N° DE TICKET'], keep='last').copy()
-    
-    # 3. Le reasignamos la fecha original (la primera) a la columna FECHA_INICIO
     df['FECHA_INICIO'] = df['N° DE TICKET'].map(primeras_fechas_inicio)
 
-# --- FUNCIÓN GENERADORA DE LINKS (PRE-LLENADO TOTAL) ---
+# --- FUNCIÓN GENERADORA DE LINKS ---
 def generar_link_actualizacion(row):
     def clean(val): 
         limpio = str(val).strip() if pd.notna(val) else ""
@@ -95,17 +90,16 @@ def generar_link_actualizacion(row):
     fecha_val = row.get('FECHA DE CIERRE')
     fecha_str = fecha_val.strftime("%Y-%m-%d") if pd.notna(fecha_val) else ""
 
-    # IDs Definitivos confirmados
     params = {
-        "entry.809586642": ticket,       # N° de Ticket
-        "entry.1541179458": area_p,      # ÁREA
-        "entry.456805649": cat,          # CATEGORÍA
-        "entry.1851030336": area_e,      # QUE ÁREA ENCUENTRA
-        "entry.1946844485": resp,        # QUE ÁREA ES RESPONSABLE
-        "entry.1049723160": efecto,      # TIPO DE EFECTO
-        "entry.552314530": desc,         # DESCRIPCIÓN
-        "entry.705803950": estado,       # MOTIVO (ESTADO)
-        "entry.536779116": fecha_str     # FECHA CIERRE
+        "entry.809586642": ticket,       
+        "entry.1541179458": area_p,      
+        "entry.456805649": cat,          
+        "entry.1851030336": area_e,      
+        "entry.1946844485": resp,        
+        "entry.1049723160": efecto,      
+        "entry.552314530": desc,         
+        "entry.705803950": estado,       
+        "entry.536779116": fecha_str     
     }
     
     query_string = "&".join([f"{k}={v}" for k, v in params.items()])
@@ -114,7 +108,6 @@ def generar_link_actualizacion(row):
 if not df.empty:
     df['ACCIÓN'] = df.apply(generar_link_actualizacion, axis=1)
 
-# Separar activos de cerrados
 if 'ESTADO' in df.columns:
     es_cerrado = df['ESTADO'].astype(str).str.contains("CIERRE", case=False, na=False)
     df_activos = df[~es_cerrado].copy()
@@ -132,33 +125,106 @@ def generar_pdf(dataframe):
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, txt="Listado de Fallos Activos", ln=True, align='C')
     pdf.ln(5)
-    pdf.set_font("Arial", 'B', 10)
-    pdf.cell(20, 8, "Ticket", 1)
-    pdf.cell(40, 8, "Area", 1)
-    pdf.cell(40, 8, "Categoria", 1)
-    pdf.cell(40, 8, "Responsable", 1)
-    pdf.cell(110, 8, "Problema", 1, 1)
     
-    pdf.set_font("Arial", '', 9)
+    # Configuración de FPDF adaptada a las columnas de Excel
+    col_widths = [35, 35, 23, 23, 125, 36] # Ancho de columnas en mm
+    headers = ['RESPONSABLE', 'CATEGORIA', 'INICIO', 'CIERRE', 'DESCRIPCION', 'A QUIEN AFECTA']
+    line_height = 5
+    
+    # Encabezados
+    pdf.set_font("Arial", 'B', 8)
+    pdf.set_fill_color(217, 217, 217)
+    for i, h in enumerate(headers):
+        pdf.cell(col_widths[i], 8, h, border=1, align='C', fill=True)
+    pdf.ln()
+
+    # Variables
+    pdf.set_font("Arial", '', 8)
+    hoy = pd.Timestamp.today(tz='America/Argentina/Cordoba').date()
+
     for _, row in dataframe.iterrows():
-        prob = str(row.get('PROBLEMA', ''))[:80].encode('latin-1', 'replace').decode('latin-1')
-        pdf.cell(20, 8, str(row.get('N° DE TICKET', '-')), 1)
-        pdf.cell(40, 8, str(row.get('ÁREA_PRINCIPAL', ''))[:20], 1)
-        pdf.cell(40, 8, str(row.get('CATEGORIA', ''))[:20], 1)
-        pdf.cell(40, 8, str(row.get('RESPONSABLE', ''))[:20], 1)
-        pdf.cell(110, 8, prob, 1, 1)
+        # Extracción y limpieza
+        resp = str(row.get('RESPONSABLE', '')).encode('latin-1', 'replace').decode('latin-1')
+        cat = str(row.get('CATEGORIA', '')).encode('latin-1', 'replace').decode('latin-1')
+        
+        f_ini = row.get('FECHA_INICIO')
+        ini = f_ini.strftime("%d/%m/%Y") if pd.notna(f_ini) and isinstance(f_ini, pd.Timestamp) else ""
+        
+        f_cie = row.get('FECHA DE CIERRE')
+        cie = f_cie.strftime("%d/%m/%Y") if pd.notna(f_cie) and isinstance(f_cie, pd.Timestamp) else ""
+        
+        desc = str(row.get('PROBLEMA', '')).encode('latin-1', 'replace').decode('latin-1')
+        afecta = str(row.get('TIPO_EFECTO', '')).encode('latin-1', 'replace').decode('latin-1')
+        
+        data_row = [resp, cat, ini, cie, desc, afecta]
+        
+        # 1. Calcular altura necesaria para la fila (Centrado Vertical)
+        max_lines = 1
+        for i, text in enumerate(data_row):
+            text_width = pdf.get_string_width(text)
+            lines = math.ceil(text_width / (col_widths[i] - 2)) + text.count('\n')
+            if lines > max_lines:
+                max_lines = lines
+                
+        row_height = (max_lines * line_height) + 2 # Margen interior
+        
+        # Salto de página preventivo si no entra la fila
+        if pdf.get_y() + row_height > 190: # Limite inferior hoja A4 apaisada
+            pdf.add_page()
+            pdf.set_font("Arial", 'B', 8)
+            pdf.set_fill_color(217, 217, 217)
+            for i, h in enumerate(headers):
+                pdf.cell(col_widths[i], 8, h, border=1, align='C', fill=True)
+            pdf.ln()
+            pdf.set_font("Arial", '', 8)
+            
+        x_start = pdf.get_x()
+        y_start = pdf.get_y()
+        
+        # 2. Imprimir celdas
+        for i, text in enumerate(data_row):
+            # Calcular Y para centrado vertical
+            text_width = pdf.get_string_width(text)
+            lines = math.ceil(text_width / (col_widths[i] - 2)) + text.count('\n')
+            text_height = lines * line_height
+            y_offset = (row_height - text_height) / 2
+            
+            # Reset posición para pintar fondo y bordes
+            pdf.set_xy(x_start, y_start)
+            
+            # Lógica de color de celda CIERRE (igual a Excel)
+            if headers[i] == 'CIERRE' and cie != "":
+                if pd.notna(f_cie) and isinstance(f_cie, pd.Timestamp) and f_cie.date() < hoy:
+                    pdf.set_fill_color(255, 199, 206)
+                    pdf.set_text_color(156, 0, 6)
+                    pdf.rect(x_start, y_start, col_widths[i], row_height, 'DF')
+                else:
+                    pdf.set_fill_color(198, 239, 206)
+                    pdf.set_text_color(0, 97, 0)
+                    pdf.rect(x_start, y_start, col_widths[i], row_height, 'DF')
+            else:
+                pdf.set_fill_color(255, 255, 255)
+                pdf.set_text_color(0, 0, 0)
+                pdf.rect(x_start, y_start, col_widths[i], row_height, 'D')
+                
+            # Escribir el texto multilínea y centrado vertical/horizontal
+            pdf.set_xy(x_start, y_start + y_offset)
+            pdf.multi_cell(col_widths[i], line_height, text, border=0, align='C')
+            
+            x_start += col_widths[i]
+            
+        pdf.set_y(y_start + row_height)
+        pdf.set_text_color(0, 0, 0) # resetear colores al negro
+        
     return pdf.output(dest='S').encode('latin-1')
 
+
 def generar_excel(dataframe):
-    # 1. Definimos las columnas que necesitamos sí o sí
     cols_necesarias = ['RESPONSABLE', 'CATEGORIA', 'FECHA_INICIO', 'FECHA DE CIERRE', 'PROBLEMA', 'TIPO_EFECTO']
-    
-    # 2. TRUCO ANTI-CRASH: Si alguna columna no existe, la creamos vacía
     for col in cols_necesarias:
         if col not in dataframe.columns:
             dataframe[col] = "Sin dato"
 
-    # 3. Extraemos la info de forma segura
     df_export = dataframe[cols_necesarias].copy()
     df_export.columns = ['RESPONSABLE', 'CATEGORIA', 'INICIO', 'CIERRE', 'DESCRIPCION', 'A QUIEN AFECTA']
     
@@ -171,14 +237,11 @@ def generar_excel(dataframe):
     workbook = writer.book
     worksheet = writer.sheets['Pendientes']
     
-    # --- ESTILOS MEJORADOS (Agregamos text_wrap y valign) ---
     header_format = workbook.add_format({'bold': True, 'border': 1, 'bg_color': '#D9D9D9', 'align': 'center', 'valign': 'vcenter'})
     date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
     red_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
     green_format = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
-    
-    # Formato general con ajuste de texto (Text Wrap)
-    cell_format = workbook.add_format({'border': 1, 'text_wrap': True, 'valign': 'vcenter'})
+    cell_format = workbook.add_format({'border': 1, 'text_wrap': True, 'valign': 'vcenter', 'align': 'center'})
     
     for col_num, value in enumerate(df_export.columns.values):
         worksheet.write(0, col_num, value, header_format)
@@ -272,11 +335,9 @@ if not df_activos.empty:
     for _, row in df_activos.iterrows():
         with st.container(border=True):
             
-            # Formatear Fecha de Inicio (la original)
             f_inicio = row.get('FECHA_INICIO')
             txt_inicio = f_inicio.strftime("%d/%m/%Y") if pd.notna(f_inicio) and isinstance(f_inicio, pd.Timestamp) else "Sin dato"
 
-            # Formatear Fecha de Cierre (la última registrada) y aplicar colores en UI
             f_cierre = row.get('FECHA DE CIERRE')
             if pd.notna(f_cierre) and isinstance(f_cierre, pd.Timestamp):
                 f_str = f_cierre.strftime("%d/%m/%Y")
@@ -298,7 +359,6 @@ if not df_activos.empty:
 
     st.divider()
     
-    # --- BOTONES DE DESCARGA EN COLUMNAS ---
     col_btn_pdf, col_btn_excel = st.columns(2)
     
     with col_btn_pdf:
@@ -321,7 +381,6 @@ with st.expander("✅ VER HISTORIAL CERRADOS"):
     else:
         for _, row in df_cerrados.iterrows():
             with st.container(border=True):
-                # También muestra la fecha inicio correcta en el historial
                 f_ini_c = row.get('FECHA_INICIO')
                 txt_ini_c = f_ini_c.strftime("%d/%m/%Y") if pd.notna(f_ini_c) and isinstance(f_ini_c, pd.Timestamp) else "Sin dato"
                 
