@@ -38,28 +38,43 @@ if df_raw.empty:
 df = df_raw.copy()
 df.columns = df.columns.str.strip()
 
-# --- TRUCO PARA ACTUALIZACIONES ---
-if 'N° DE TICKET' in df.columns:
-    df['N° DE TICKET'] = df['N° DE TICKET'].astype(str).str.replace('.0', '', regex=False).str.strip()
-    df = df[df['N° DE TICKET'] != 'nan']
-    df = df.drop_duplicates(subset=['N° DE TICKET'], keep='last')
-
 # Mapeo ABSOLUTO de todas las columnas de tu Excel
 mapeo = {
+    'Marca temporal': 'FECHA_INICIO', 
     'AREA': 'ÁREA_PRINCIPAL',
     'CATEGORIA': 'CATEGORIA',
     'QUE AREA ENCUENTRA EL PROBLEMA?': 'AREA_ENCUENTRA',
     'QUE AREA ES RESPONSABLE DE EL PROBLEMA?': 'RESPONSABLE',
+    'QUE TIPO DE EFECTO TIENE EL PROBLEMA?': 'TIPO_EFECTO', 
     'DESCRIPCION DE FALLA': 'PROBLEMA',
     'MOTIVO DE LA CARGA': 'ESTADO'
 }
 df = df.rename(columns=mapeo)
 
-# Parseo de Fecha de Cierre
-if 'FECHA DE CIERRE' in df.columns:
-    df['FECHA DE CIERRE'] = pd.to_datetime(df['FECHA DE CIERRE'], errors='coerce', dayfirst=True)
-else:
-    df['FECHA DE CIERRE'] = pd.NaT
+# --- TRUCO PARA ACTUALIZACIONES Y FECHAS CORRECTAS ---
+if 'N° DE TICKET' in df.columns:
+    df['N° DE TICKET'] = df['N° DE TICKET'].astype(str).str.replace('.0', '', regex=False).str.strip()
+    df = df[df['N° DE TICKET'] != 'nan']
+    
+    # Parsear fechas ANTES de agrupar para evitar errores
+    if 'FECHA_INICIO' in df.columns:
+        df['FECHA_INICIO'] = pd.to_datetime(df['FECHA_INICIO'], errors='coerce', dayfirst=True)
+    else:
+        df['FECHA_INICIO'] = pd.NaT
+
+    if 'FECHA DE CIERRE' in df.columns:
+        df['FECHA DE CIERRE'] = pd.to_datetime(df['FECHA DE CIERRE'], errors='coerce', dayfirst=True)
+    else:
+        df['FECHA DE CIERRE'] = pd.NaT
+
+    # 1. Rescatamos la PRIMERA fecha de ingreso de cada ticket
+    primeras_fechas_inicio = df.groupby('N° DE TICKET')['FECHA_INICIO'].min()
+    
+    # 2. Nos quedamos con el ÚLTIMO registro (para que traiga el cierre, estado actual, etc.)
+    df = df.drop_duplicates(subset=['N° DE TICKET'], keep='last').copy()
+    
+    # 3. Le reasignamos la fecha original (la primera) a la columna FECHA_INICIO
+    df['FECHA_INICIO'] = df['N° DE TICKET'].map(primeras_fechas_inicio)
 
 # --- FUNCIÓN GENERADORA DE LINKS (PRE-LLENADO TOTAL) ---
 def generar_link_actualizacion(row):
@@ -72,6 +87,7 @@ def generar_link_actualizacion(row):
     cat    = clean(row.get('CATEGORIA'))
     area_e = clean(row.get('AREA_ENCUENTRA'))
     resp   = clean(row.get('RESPONSABLE'))
+    efecto = clean(row.get('TIPO_EFECTO')) 
     desc   = clean(row.get('PROBLEMA'))
     estado = clean(row.get('ESTADO'))
     
@@ -80,14 +96,15 @@ def generar_link_actualizacion(row):
 
     # IDs Definitivos confirmados
     params = {
-        "entry.809586642": ticket,     # N° de Ticket
-        "entry.1541179458": area_p,    # ÁREA
-        "entry.456805649": cat,        # CATEGORÍA
-        "entry.1851030336": area_e,    # QUE ÁREA ENCUENTRA
-        "entry.1946844485": resp,      # QUE ÁREA ES RESPONSABLE
-        "entry.552314530": desc,       # DESCRIPCIÓN
-        "entry.705803950": estado,     # MOTIVO (ESTADO)
-        "entry.536779116": fecha_str   # FECHA CIERRE
+        "entry.809586642": ticket,       # N° de Ticket
+        "entry.1541179458": area_p,      # ÁREA
+        "entry.456805649": cat,          # CATEGORÍA
+        "entry.1851030336": area_e,      # QUE ÁREA ENCUENTRA
+        "entry.1946844485": resp,        # QUE ÁREA ES RESPONSABLE
+        "entry.1049723160": efecto,      # TIPO DE EFECTO
+        "entry.552314530": desc,         # DESCRIPCIÓN
+        "entry.705803950": estado,       # MOTIVO (ESTADO)
+        "entry.536779116": fecha_str     # FECHA CIERRE
     }
     
     query_string = "&".join([f"{k}={v}" for k, v in params.items()])
@@ -138,15 +155,41 @@ if st.button("🔄 Actualizar App", use_container_width=True):
 
 st.divider()
 
-with st.expander("🔍 Buscador y Filtros"):
-    busqueda = st.text_input("Buscar en la descripción:")
-    areas_list = sorted(df['ÁREA_PRINCIPAL'].dropna().unique().tolist())
-    f_area = st.selectbox("📍 Área:", ["Todas"] + areas_list)
+# --- NUEVA LÓGICA DE FILTROS ---
+with st.expander("🔍 Buscador y Filtros", expanded=True):
+    busqueda = st.text_input("Buscar en la descripción del problema:")
+    
+    col_filtro1, col_filtro2 = st.columns(2)
+    
+    with col_filtro1:
+        areas_list = sorted(df['ÁREA_PRINCIPAL'].dropna().astype(str).unique().tolist())
+        f_area = st.selectbox("📍 Área:", ["Todas"] + areas_list)
+        
+        resp_list = sorted(df['RESPONSABLE'].dropna().astype(str).unique().tolist())
+        f_responsable = st.selectbox("👤 Responsable:", ["Todos"] + resp_list)
 
+    with col_filtro2:
+        detecto_list = sorted(df['AREA_ENCUENTRA'].dropna().astype(str).unique().tolist())
+        f_detecto = st.selectbox("🔍 Área que detectó:", ["Todas"] + detecto_list)
+        
+        if 'TIPO_EFECTO' in df.columns:
+            efectos_list = sorted(df['TIPO_EFECTO'].dropna().astype(str).unique().tolist())
+        else:
+            efectos_list = []
+        f_efecto = st.selectbox("⚠️ Tipo de Efecto:", ["Todos"] + efectos_list)
+
+# --- APLICACIÓN DE LOS FILTROS ---
 if busqueda:
     df_activos = df_activos[df_activos['PROBLEMA'].str.contains(busqueda, case=False, na=False)]
 if f_area != "Todas":
     df_activos = df_activos[df_activos['ÁREA_PRINCIPAL'] == f_area]
+if f_responsable != "Todos":
+    df_activos = df_activos[df_activos['RESPONSABLE'] == f_responsable]
+if f_detecto != "Todas":
+    df_activos = df_activos[df_activos['AREA_ENCUENTRA'] == f_detecto]
+if f_efecto != "Todos":
+    df_activos = df_activos[df_activos['TIPO_EFECTO'] == f_efecto]
+
 
 # ==========================================
 # 5. TARJETAS ACTIVAS
@@ -157,16 +200,22 @@ hoy = pd.Timestamp.today(tz='America/Argentina/Cordoba').date()
 if not df_activos.empty:
     for _, row in df_activos.iterrows():
         with st.container(border=True):
-            f_cierre = row['FECHA DE CIERRE']
+            
+            # Formatear Fecha de Inicio (la original)
+            f_inicio = row.get('FECHA_INICIO')
+            txt_inicio = f_inicio.strftime("%d/%m/%Y") if pd.notna(f_inicio) else "Sin dato"
+
+            # Formatear Fecha de Cierre (la última registrada)
+            f_cierre = row.get('FECHA DE CIERRE')
             if pd.notna(f_cierre):
                 f_str = f_cierre.strftime("%d/%m/%Y")
                 color = "green" if f_cierre.date() >= hoy else "red"
-                txt_fecha = f"**:{color}[📅 Cierre: {f_str}]**"
+                txt_cierre = f"**:{color}[📅 Cierre: {f_str}]**"
             else:
-                txt_fecha = "**📅 Cierre:** Sin asignar"
+                txt_cierre = "**📅 Cierre:** Sin asignar"
 
-            st.markdown(f"**Ticket:** {row['N° DE TICKET']} | {txt_fecha}")
-            st.markdown(f"**📂 Categoría:** {row.get('CATEGORIA', 'N/A')}")
+            st.markdown(f"**Ticket:** {row['N° DE TICKET']} | **🟢 Inicio:** {txt_inicio} | {txt_cierre}")
+            st.markdown(f"**📂 Categoría:** {row.get('CATEGORIA', 'N/A')} | **⚠️ Efecto:** {row.get('TIPO_EFECTO', 'N/A')}")
             st.markdown(f"**📍 Área:** {row['ÁREA_PRINCIPAL']}")
             st.markdown(f"**🔍 Detectó:** {row['AREA_ENCUENTRA']} | **👤 Responsable:** {row['RESPONSABLE']}")
             st.markdown(f"**📌 Estado:** {row['ESTADO']}")
@@ -179,7 +228,7 @@ if not df_activos.empty:
     pdf_bytes = generar_pdf(df_activos)
     st.download_button("📄 Descargar PDF", pdf_bytes, "Reporte_Fallos.pdf", "application/pdf", use_container_width=True)
 else:
-    st.success("✅ Sin problemas pendientes.")
+    st.success("✅ Sin problemas pendientes o sin resultados para tu filtro.")
 
 # ==========================================
 # 6. HISTORIAL CERRADOS
@@ -190,5 +239,9 @@ with st.expander("✅ VER HISTORIAL CERRADOS"):
     else:
         for _, row in df_cerrados.iterrows():
             with st.container(border=True):
-                st.markdown(f"**Ticket {row['N° DE TICKET']}** | {row.get('CATEGORIA', 'N/A')}")
+                # También muestra la fecha inicio correcta en el historial
+                f_ini_c = row.get('FECHA_INICIO')
+                txt_ini_c = f_ini_c.strftime("%d/%m/%Y") if pd.notna(f_ini_c) else "Sin dato"
+                
+                st.markdown(f"**Ticket {row['N° DE TICKET']}** | 🟢 Inicio: {txt_ini_c} | {row.get('CATEGORIA', 'N/A')} | Efecto: {row.get('TIPO_EFECTO', 'N/A')}")
                 st.success(f"**Resuelto:**\n{row['PROBLEMA']}")
