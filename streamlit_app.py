@@ -205,12 +205,13 @@ if not df_activos.empty:
             f_inicio = row.get('FECHA_INICIO')
             txt_inicio = f_inicio.strftime("%d/%m/%Y") if pd.notna(f_inicio) else "Sin dato"
 
-            # Formatear Fecha de Cierre (la última registrada)
+            # Formatear Fecha de Cierre (la última registrada) y aplicar colores
             f_cierre = row.get('FECHA DE CIERRE')
             if pd.notna(f_cierre):
                 f_str = f_cierre.strftime("%d/%m/%Y")
                 color = "green" if f_cierre.date() >= hoy else "red"
-                txt_cierre = f"**:{color}[📅 Cierre: {f_str}]**"
+                # Formato ajustado para asegurar compatibilidad en Streamlit
+                txt_cierre = f":{color}[**📅 Cierre: {f_str}**]"
             else:
                 txt_cierre = "**📅 Cierre:** Sin asignar"
 
