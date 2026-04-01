@@ -214,7 +214,7 @@ if not df_activos.empty:
             else:
                 txt_cierre = "**📅 Cierre:** Sin asignar"
 
-            st.markdown(f"**Ticket:** {row['N° DE TICKET']} | **🟢 Inicio:** {txt_inicio} | {txt_cierre}")
+            st.markdown(f"**Ticket:** {row['N° DE TICKET']} | **📅 Inicio:** {txt_inicio} | {txt_cierre}")
             st.markdown(f"**📂 Categoría:** {row.get('CATEGORIA', 'N/A')} | **⚠️ Efecto:** {row.get('TIPO_EFECTO', 'N/A')}")
             st.markdown(f"**📍 Área:** {row['ÁREA_PRINCIPAL']}")
             st.markdown(f"**🔍 Detectó:** {row['AREA_ENCUENTRA']} | **👤 Responsable:** {row['RESPONSABLE']}")
