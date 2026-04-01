@@ -163,7 +163,7 @@ with st.expander("🔍 Buscador y Filtros", expanded=True):
     
     with col_filtro1:
         areas_list = sorted(df['ÁREA_PRINCIPAL'].dropna().astype(str).unique().tolist())
-        f_area = st.selectbox("📍 Área:", ["Todas"] + areas_list)
+        f_area = st.selectbox("📍 Planta:", ["Todas"] + areas_list)
         
         resp_list = sorted(df['RESPONSABLE'].dropna().astype(str).unique().tolist())
         f_responsable = st.selectbox("👤 Responsable:", ["Todos"] + resp_list)
