@@ -243,5 +243,5 @@ with st.expander("✅ VER HISTORIAL CERRADOS"):
                 f_ini_c = row.get('FECHA_INICIO')
                 txt_ini_c = f_ini_c.strftime("%d/%m/%Y") if pd.notna(f_ini_c) else "Sin dato"
                 
-                st.markdown(f"**Ticket {row['N° DE TICKET']}** | 🟢 Inicio: {txt_ini_c} | {row.get('CATEGORIA', 'N/A')} | Efecto: {row.get('TIPO_EFECTO', 'N/A')}")
+                st.markdown(f"**Ticket {row['N° DE TICKET']}** | 📅 Inicio: {txt_ini_c} | {row.get('CATEGORIA', 'N/A')} | Efecto: {row.get('TIPO_EFECTO', 'N/A')}")
                 st.success(f"**Resuelto:**\n{row['PROBLEMA']}")
