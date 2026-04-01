@@ -3,6 +3,7 @@ import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 from fpdf import FPDF
 import urllib.parse
+import io  # <-- NUEVO: Necesario para exportar a Excel en memoria
 
 # ==========================================
 # 1. CONFIGURACIÓN INICIAL Y CSS
@@ -118,7 +119,7 @@ df_activos = df[~es_cerrado].copy()
 df_cerrados = df[es_cerrado].copy()
 
 # ==========================================
-# 3. GENERADOR DE PDF
+# 3. GENERADOR DE PDF Y EXCEL
 # ==========================================
 def generar_pdf(dataframe):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
@@ -142,6 +143,64 @@ def generar_pdf(dataframe):
         pdf.cell(40, 8, str(row.get('RESPONSABLE', ''))[:20], 1)
         pdf.cell(110, 8, prob, 1, 1)
     return pdf.output(dest='S').encode('latin-1')
+
+def generar_excel(dataframe):
+    # Armamos la tabla con las columnas exactas que pediste
+    df_export = dataframe[['RESPONSABLE', 'CATEGORIA', 'FECHA_INICIO', 'FECHA DE CIERRE', 'PROBLEMA', 'AREA_ENCUENTRA']].copy()
+    df_export.columns = ['RESPONSABLE', 'CATEGORIA', 'INICIO', 'CIERRE', 'DESCRIPCION', 'A QUIEN AFECTA']
+    
+    hoy = pd.Timestamp.today(tz='America/Argentina/Cordoba').date()
+    
+    output = io.BytesIO()
+    # Usamos el engine xlsxwriter para inyectar colores y formato de celda
+    writer = pd.ExcelWriter(output, engine='xlsxwriter')
+    df_export.to_excel(writer, index=False, sheet_name='Pendientes')
+    
+    workbook = writer.book
+    worksheet = writer.sheets['Pendientes']
+    
+    # Definimos los estilos (colores de las celdas, bordes, alineaciones)
+    header_format = workbook.add_format({'bold': True, 'border': 1, 'bg_color': '#D9D9D9', 'align': 'center'})
+    date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
+    red_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
+    green_format = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
+    cell_format = workbook.add_format({'border': 1})
+    
+    # Escribimos los encabezados con estilo
+    for col_num, value in enumerate(df_export.columns.values):
+        worksheet.write(0, col_num, value, header_format)
+        
+    # Ajustamos el ancho de las columnas
+    worksheet.set_column('A:B', 20)
+    worksheet.set_column('C:D', 15)
+    worksheet.set_column('E:E', 60)
+    worksheet.set_column('F:F', 25)
+    
+    # Evaluamos fila por fila para inyectar las fechas y colores correspondientes
+    for row_num in range(len(df_export)):
+        for col_num in range(len(df_export.columns)):
+            col_name = df_export.columns[col_num]
+            val = df_export.iloc[row_num, col_num]
+            
+            # Validamos celdas vacías
+            if pd.isna(val) or val == "":
+                worksheet.write(row_num + 1, col_num, "", cell_format)
+            # Aplicamos los colores rojo/verde para la columna CIERRE
+            elif col_name == 'CIERRE':
+                if val.date() < hoy:
+                    worksheet.write_datetime(row_num + 1, col_num, val, red_format)
+                else:
+                    worksheet.write_datetime(row_num + 1, col_num, val, green_format)
+            # Aplicamos formato de fecha normal a la columna INICIO
+            elif col_name == 'INICIO':
+                worksheet.write_datetime(row_num + 1, col_num, val, date_format)
+            # Para el resto, aplicamos formato normal
+            else:
+                worksheet.write(row_num + 1, col_num, str(val), cell_format)
+                
+    writer.close()
+    return output.getvalue()
+
 
 # ==========================================
 # 4. INTERFAZ VISUAL
@@ -210,7 +269,6 @@ if not df_activos.empty:
             if pd.notna(f_cierre):
                 f_str = f_cierre.strftime("%d/%m/%Y")
                 color = "green" if f_cierre.date() >= hoy else "red"
-                # Formato ajustado para asegurar compatibilidad en Streamlit
                 txt_cierre = f":{color}[**📅 Cierre: {f_str}**]"
             else:
                 txt_cierre = "**📅 Cierre:** Sin asignar"
@@ -226,8 +284,18 @@ if not df_activos.empty:
             st.link_button("🔄 Actualizar / Editar Ticket", row['ACCIÓN'], use_container_width=True)
 
     st.divider()
-    pdf_bytes = generar_pdf(df_activos)
-    st.download_button("📄 Descargar PDF", pdf_bytes, "Reporte_Fallos.pdf", "application/pdf", use_container_width=True)
+    
+    # --- BOTONES DE DESCARGA EN COLUMNAS ---
+    col_btn_pdf, col_btn_excel = st.columns(2)
+    
+    with col_btn_pdf:
+        pdf_bytes = generar_pdf(df_activos)
+        st.download_button("📄 Descargar PDF", pdf_bytes, "Reporte_Fallos.pdf", "application/pdf", use_container_width=True)
+        
+    with col_btn_excel:
+        excel_bytes = generar_excel(df_activos)
+        st.download_button("📊 Descargar Excel", excel_bytes, "Reporte_Pendientes.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+
 else:
     st.success("✅ Sin problemas pendientes o sin resultados para tu filtro.")
 
