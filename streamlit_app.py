@@ -40,13 +40,14 @@ df = df_raw.copy()
 df.columns = df.columns.str.strip()
 
 # Mapeo ABSOLUTO de todas las columnas de tu Excel
+# AQUÍ ESTÁ LA CORRECCIÓN DEL NOMBRE DE LA COLUMNA
 mapeo = {
     'Marca temporal': 'FECHA_INICIO', 
     'AREA': 'ÁREA_PRINCIPAL',
     'CATEGORIA': 'CATEGORIA',
     'QUE AREA ENCUENTRA EL PROBLEMA?': 'AREA_ENCUENTRA',
     'QUE AREA ES RESPONSABLE DE EL PROBLEMA?': 'RESPONSABLE',
-    'QUE TIPO DE EFECTO TIENE EL PROBLEMA?': 'TIPO_EFECTO', 
+    'QUE TIPO DE EFECTO TIENE LA FALLA?': 'TIPO_EFECTO', # <-- ¡Corregido!
     'DESCRIPCION DE FALLA': 'PROBLEMA',
     'MOTIVO DE LA CARGA': 'ESTADO'
 }
@@ -111,12 +112,17 @@ def generar_link_actualizacion(row):
     query_string = "&".join([f"{k}={v}" for k, v in params.items()])
     return f"{url_form}?usp=pp_url&{query_string}"
 
-df['ACCIÓN'] = df.apply(generar_link_actualizacion, axis=1)
+if not df.empty:
+    df['ACCIÓN'] = df.apply(generar_link_actualizacion, axis=1)
 
 # Separar activos de cerrados
-es_cerrado = df['ESTADO'].astype(str).str.contains("CIERRE", case=False, na=False)
-df_activos = df[~es_cerrado].copy()
-df_cerrados = df[es_cerrado].copy()
+if 'ESTADO' in df.columns:
+    es_cerrado = df['ESTADO'].astype(str).str.contains("CIERRE", case=False, na=False)
+    df_activos = df[~es_cerrado].copy()
+    df_cerrados = df[es_cerrado].copy()
+else:
+    df_activos = df.copy()
+    df_cerrados = pd.DataFrame(columns=df.columns)
 
 # ==========================================
 # 3. GENERADOR DE PDF Y EXCEL
@@ -145,56 +151,61 @@ def generar_pdf(dataframe):
     return pdf.output(dest='S').encode('latin-1')
 
 def generar_excel(dataframe):
-    # Usamos 'TIPO_EFECTO' para la columna "A QUIEN AFECTA"
-    df_export = dataframe[['RESPONSABLE', 'CATEGORIA', 'FECHA_INICIO', 'FECHA DE CIERRE', 'PROBLEMA', 'TIPO_EFECTO']].copy()
+    # 1. Definimos las columnas que necesitamos sí o sí
+    cols_necesarias = ['RESPONSABLE', 'CATEGORIA', 'FECHA_INICIO', 'FECHA DE CIERRE', 'PROBLEMA', 'TIPO_EFECTO']
+    
+    # 2. TRUCO ANTI-CRASH: Si alguna columna no existe, la creamos vacía
+    for col in cols_necesarias:
+        if col not in dataframe.columns:
+            dataframe[col] = "Sin dato"
+
+    # 3. Extraemos la info de forma segura
+    df_export = dataframe[cols_necesarias].copy()
     df_export.columns = ['RESPONSABLE', 'CATEGORIA', 'INICIO', 'CIERRE', 'DESCRIPCION', 'A QUIEN AFECTA']
     
     hoy = pd.Timestamp.today(tz='America/Argentina/Cordoba').date()
     
     output = io.BytesIO()
-    # Usamos el engine xlsxwriter para inyectar colores y formato de celda
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
     df_export.to_excel(writer, index=False, sheet_name='Pendientes')
     
     workbook = writer.book
     worksheet = writer.sheets['Pendientes']
     
-    # Definimos los estilos (colores de las celdas, bordes, alineaciones)
+    # Definimos estilos
     header_format = workbook.add_format({'bold': True, 'border': 1, 'bg_color': '#D9D9D9', 'align': 'center'})
     date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
     red_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
     green_format = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
     cell_format = workbook.add_format({'border': 1})
     
-    # Escribimos los encabezados con estilo
     for col_num, value in enumerate(df_export.columns.values):
         worksheet.write(0, col_num, value, header_format)
         
-    # Ajustamos el ancho de las columnas
     worksheet.set_column('A:B', 20)
     worksheet.set_column('C:D', 15)
     worksheet.set_column('E:E', 60)
     worksheet.set_column('F:F', 25)
     
-    # Evaluamos fila por fila para inyectar las fechas y colores correspondientes
     for row_num in range(len(df_export)):
         for col_num in range(len(df_export.columns)):
             col_name = df_export.columns[col_num]
             val = df_export.iloc[row_num, col_num]
             
-            # Validamos celdas vacías
-            if pd.isna(val) or val == "":
-                worksheet.write(row_num + 1, col_num, "", cell_format)
-            # Aplicamos los colores rojo/verde para la columna CIERRE
+            if pd.isna(val) or val == "" or val == "Sin dato":
+                worksheet.write(row_num + 1, col_num, str(val) if val == "Sin dato" else "", cell_format)
             elif col_name == 'CIERRE':
-                if val.date() < hoy:
+                if isinstance(val, pd.Timestamp) and val.date() < hoy:
                     worksheet.write_datetime(row_num + 1, col_num, val, red_format)
-                else:
+                elif isinstance(val, pd.Timestamp):
                     worksheet.write_datetime(row_num + 1, col_num, val, green_format)
-            # Aplicamos formato de fecha normal a la columna INICIO
+                else:
+                    worksheet.write(row_num + 1, col_num, str(val), cell_format)
             elif col_name == 'INICIO':
-                worksheet.write_datetime(row_num + 1, col_num, val, date_format)
-            # Para el resto, aplicamos formato normal
+                if isinstance(val, pd.Timestamp):
+                    worksheet.write_datetime(row_num + 1, col_num, val, date_format)
+                else:
+                    worksheet.write(row_num + 1, col_num, str(val), cell_format)
             else:
                 worksheet.write(row_num + 1, col_num, str(val), cell_format)
                 
@@ -221,14 +232,14 @@ with st.expander("🔍 Buscador y Filtros", expanded=True):
     col_filtro1, col_filtro2 = st.columns(2)
     
     with col_filtro1:
-        areas_list = sorted(df['ÁREA_PRINCIPAL'].dropna().astype(str).unique().tolist())
+        areas_list = sorted(df['ÁREA_PRINCIPAL'].dropna().astype(str).unique().tolist()) if 'ÁREA_PRINCIPAL' in df.columns else []
         f_area = st.selectbox("📍 Planta:", ["Todas"] + areas_list)
         
-        resp_list = sorted(df['RESPONSABLE'].dropna().astype(str).unique().tolist())
+        resp_list = sorted(df['RESPONSABLE'].dropna().astype(str).unique().tolist()) if 'RESPONSABLE' in df.columns else []
         f_responsable = st.selectbox("👤 Responsable:", ["Todos"] + resp_list)
 
     with col_filtro2:
-        detecto_list = sorted(df['AREA_ENCUENTRA'].dropna().astype(str).unique().tolist())
+        detecto_list = sorted(df['AREA_ENCUENTRA'].dropna().astype(str).unique().tolist()) if 'AREA_ENCUENTRA' in df.columns else []
         f_detecto = st.selectbox("🔍 Área que detectó:", ["Todas"] + detecto_list)
         
         if 'TIPO_EFECTO' in df.columns:
@@ -238,15 +249,15 @@ with st.expander("🔍 Buscador y Filtros", expanded=True):
         f_efecto = st.selectbox("⚠️ Tipo de Efecto:", ["Todos"] + efectos_list)
 
 # --- APLICACIÓN DE LOS FILTROS ---
-if busqueda:
+if busqueda and not df_activos.empty:
     df_activos = df_activos[df_activos['PROBLEMA'].str.contains(busqueda, case=False, na=False)]
-if f_area != "Todas":
+if f_area != "Todas" and not df_activos.empty:
     df_activos = df_activos[df_activos['ÁREA_PRINCIPAL'] == f_area]
-if f_responsable != "Todos":
+if f_responsable != "Todos" and not df_activos.empty:
     df_activos = df_activos[df_activos['RESPONSABLE'] == f_responsable]
-if f_detecto != "Todas":
+if f_detecto != "Todas" and not df_activos.empty:
     df_activos = df_activos[df_activos['AREA_ENCUENTRA'] == f_detecto]
-if f_efecto != "Todos":
+if f_efecto != "Todos" and not df_activos.empty:
     df_activos = df_activos[df_activos['TIPO_EFECTO'] == f_efecto]
 
 
@@ -262,26 +273,27 @@ if not df_activos.empty:
             
             # Formatear Fecha de Inicio (la original)
             f_inicio = row.get('FECHA_INICIO')
-            txt_inicio = f_inicio.strftime("%d/%m/%Y") if pd.notna(f_inicio) else "Sin dato"
+            txt_inicio = f_inicio.strftime("%d/%m/%Y") if pd.notna(f_inicio) and isinstance(f_inicio, pd.Timestamp) else "Sin dato"
 
             # Formatear Fecha de Cierre (la última registrada) y aplicar colores en UI
             f_cierre = row.get('FECHA DE CIERRE')
-            if pd.notna(f_cierre):
+            if pd.notna(f_cierre) and isinstance(f_cierre, pd.Timestamp):
                 f_str = f_cierre.strftime("%d/%m/%Y")
                 color = "green" if f_cierre.date() >= hoy else "red"
                 txt_cierre = f":{color}[**📅 Cierre: {f_str}**]"
             else:
                 txt_cierre = "**📅 Cierre:** Sin asignar"
 
-            st.markdown(f"**Ticket:** {row['N° DE TICKET']} | **📅 Inicio:** {txt_inicio} | {txt_cierre}")
+            st.markdown(f"**Ticket:** {row.get('N° DE TICKET', 'N/A')} | **📅 Inicio:** {txt_inicio} | {txt_cierre}")
             st.markdown(f"**📂 Categoría:** {row.get('CATEGORIA', 'N/A')} | **⚠️ Efecto:** {row.get('TIPO_EFECTO', 'N/A')}")
-            st.markdown(f"**📍 Área:** {row['ÁREA_PRINCIPAL']}")
-            st.markdown(f"**🔍 Detectó:** {row['AREA_ENCUENTRA']} | **👤 Responsable:** {row['RESPONSABLE']}")
-            st.markdown(f"**📌 Estado:** {row['ESTADO']}")
+            st.markdown(f"**📍 Área:** {row.get('ÁREA_PRINCIPAL', 'N/A')}")
+            st.markdown(f"**🔍 Detectó:** {row.get('AREA_ENCUENTRA', 'N/A')} | **👤 Responsable:** {row.get('RESPONSABLE', 'N/A')}")
+            st.markdown(f"**📌 Estado:** {row.get('ESTADO', 'N/A')}")
             
-            st.error(f"**Descripción:**\n{row['PROBLEMA']}")
+            st.error(f"**Descripción:**\n{row.get('PROBLEMA', 'N/A')}")
             
-            st.link_button("🔄 Actualizar / Editar Ticket", row['ACCIÓN'], use_container_width=True)
+            if 'ACCIÓN' in row and pd.notna(row['ACCIÓN']):
+                st.link_button("🔄 Actualizar / Editar Ticket", row['ACCIÓN'], use_container_width=True)
 
     st.divider()
     
@@ -310,7 +322,7 @@ with st.expander("✅ VER HISTORIAL CERRADOS"):
             with st.container(border=True):
                 # También muestra la fecha inicio correcta en el historial
                 f_ini_c = row.get('FECHA_INICIO')
-                txt_ini_c = f_ini_c.strftime("%d/%m/%Y") if pd.notna(f_ini_c) else "Sin dato"
+                txt_ini_c = f_ini_c.strftime("%d/%m/%Y") if pd.notna(f_ini_c) and isinstance(f_ini_c, pd.Timestamp) else "Sin dato"
                 
-                st.markdown(f"**Ticket {row['N° DE TICKET']}** | 📅 Inicio: {txt_ini_c} | {row.get('CATEGORIA', 'N/A')} | Efecto: {row.get('TIPO_EFECTO', 'N/A')}")
-                st.success(f"**Resuelto:**\n{row['PROBLEMA']}")
+                st.markdown(f"**Ticket {row.get('N° DE TICKET', 'N/A')}** | 📅 Inicio: {txt_ini_c} | {row.get('CATEGORIA', 'N/A')} | Efecto: {row.get('TIPO_EFECTO', 'N/A')}")
+                st.success(f"**Resuelto:**\n{row.get('PROBLEMA', 'N/A')}")
