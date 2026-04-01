@@ -3,7 +3,7 @@ import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 from fpdf import FPDF
 import urllib.parse
-import io  # <-- NUEVO: Necesario para exportar a Excel en memoria
+import io  
 
 # ==========================================
 # 1. CONFIGURACIÓN INICIAL Y CSS
@@ -145,8 +145,8 @@ def generar_pdf(dataframe):
     return pdf.output(dest='S').encode('latin-1')
 
 def generar_excel(dataframe):
-    # Armamos la tabla con las columnas exactas que pediste
-    df_export = dataframe[['RESPONSABLE', 'CATEGORIA', 'FECHA_INICIO', 'FECHA DE CIERRE', 'PROBLEMA', 'AREA_ENCUENTRA']].copy()
+    # Usamos 'TIPO_EFECTO' para la columna "A QUIEN AFECTA"
+    df_export = dataframe[['RESPONSABLE', 'CATEGORIA', 'FECHA_INICIO', 'FECHA DE CIERRE', 'PROBLEMA', 'TIPO_EFECTO']].copy()
     df_export.columns = ['RESPONSABLE', 'CATEGORIA', 'INICIO', 'CIERRE', 'DESCRIPCION', 'A QUIEN AFECTA']
     
     hoy = pd.Timestamp.today(tz='America/Argentina/Cordoba').date()
@@ -264,7 +264,7 @@ if not df_activos.empty:
             f_inicio = row.get('FECHA_INICIO')
             txt_inicio = f_inicio.strftime("%d/%m/%Y") if pd.notna(f_inicio) else "Sin dato"
 
-            # Formatear Fecha de Cierre (la última registrada) y aplicar colores
+            # Formatear Fecha de Cierre (la última registrada) y aplicar colores en UI
             f_cierre = row.get('FECHA DE CIERRE')
             if pd.notna(f_cierre):
                 f_str = f_cierre.strftime("%d/%m/%Y")
