@@ -40,14 +40,13 @@ df = df_raw.copy()
 df.columns = df.columns.str.strip()
 
 # Mapeo ABSOLUTO de todas las columnas de tu Excel
-# AQUÍ ESTÁ LA CORRECCIÓN DEL NOMBRE DE LA COLUMNA
 mapeo = {
     'Marca temporal': 'FECHA_INICIO', 
     'AREA': 'ÁREA_PRINCIPAL',
     'CATEGORIA': 'CATEGORIA',
     'QUE AREA ENCUENTRA EL PROBLEMA?': 'AREA_ENCUENTRA',
     'QUE AREA ES RESPONSABLE DE EL PROBLEMA?': 'RESPONSABLE',
-    'QUE TIPO DE EFECTO TIENE LA FALLA?': 'TIPO_EFECTO', # <-- ¡Corregido!
+    'QUE TIPO DE EFECTO TIENE LA FALLA?': 'TIPO_EFECTO', 
     'DESCRIPCION DE FALLA': 'PROBLEMA',
     'MOTIVO DE LA CARGA': 'ESTADO'
 }
@@ -172,12 +171,14 @@ def generar_excel(dataframe):
     workbook = writer.book
     worksheet = writer.sheets['Pendientes']
     
-    # Definimos estilos
-    header_format = workbook.add_format({'bold': True, 'border': 1, 'bg_color': '#D9D9D9', 'align': 'center'})
-    date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
-    red_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
-    green_format = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center'})
-    cell_format = workbook.add_format({'border': 1})
+    # --- ESTILOS MEJORADOS (Agregamos text_wrap y valign) ---
+    header_format = workbook.add_format({'bold': True, 'border': 1, 'bg_color': '#D9D9D9', 'align': 'center', 'valign': 'vcenter'})
+    date_format = workbook.add_format({'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+    red_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+    green_format = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': 'dd/mm/yyyy', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+    
+    # Formato general con ajuste de texto (Text Wrap)
+    cell_format = workbook.add_format({'border': 1, 'text_wrap': True, 'valign': 'vcenter'})
     
     for col_num, value in enumerate(df_export.columns.values):
         worksheet.write(0, col_num, value, header_format)
