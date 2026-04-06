@@ -3,7 +3,7 @@ import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 from fpdf import FPDF
 import urllib.parse
-import io  
+import io
 import math
 
 # ==========================================
@@ -115,6 +115,10 @@ if 'ESTADO' in df.columns:
 else:
     df_activos = df.copy()
     df_cerrados = pd.DataFrame(columns=df.columns)
+
+# INVERSIÓN DEL ORDEN DE LOS DATOS (Los más recientes primero)
+df_activos = df_activos.iloc[::-1]
+df_cerrados = df_cerrados.iloc[::-1]
 
 # ==========================================
 # 3. GENERADOR DE PDF Y EXCEL
