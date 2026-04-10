@@ -130,9 +130,9 @@ def generar_pdf(dataframe):
     pdf.cell(0, 10, txt="Listado de Fallos Activos", ln=True, align='C')
     pdf.ln(5)
     
-    # Configuración de FPDF adaptada a las columnas de Excel
-    col_widths = [35, 35, 23, 23, 125, 36] # Ancho de columnas en mm
-    headers = ['RESPONSABLE', 'CATEGORIA', 'INICIO', 'CIERRE', 'DESCRIPCION', 'A QUIEN AFECTA']
+    # Configuración de FPDF adaptada a las nuevas columnas
+    col_widths = [18, 25, 27, 25, 20, 20, 110, 32] # Total = 277 mm
+    headers = ['TICKET', 'PLANTA', 'RESPONSABLE', 'CATEGORIA', 'INICIO', 'CIERRE', 'DESCRIPCION', 'AFECTA']
     line_height = 5
     
     # Encabezados
@@ -148,6 +148,8 @@ def generar_pdf(dataframe):
 
     for _, row in dataframe.iterrows():
         # Extracción y limpieza
+        tkt = str(row.get('N° DE TICKET', '')).encode('latin-1', 'replace').decode('latin-1')
+        planta = str(row.get('ÁREA_PRINCIPAL', '')).encode('latin-1', 'replace').decode('latin-1')
         resp = str(row.get('RESPONSABLE', '')).encode('latin-1', 'replace').decode('latin-1')
         cat = str(row.get('CATEGORIA', '')).encode('latin-1', 'replace').decode('latin-1')
         
@@ -160,7 +162,7 @@ def generar_pdf(dataframe):
         desc = str(row.get('PROBLEMA', '')).encode('latin-1', 'replace').decode('latin-1')
         afecta = str(row.get('TIPO_EFECTO', '')).encode('latin-1', 'replace').decode('latin-1')
         
-        data_row = [resp, cat, ini, cie, desc, afecta]
+        data_row = [tkt, planta, resp, cat, ini, cie, desc, afecta]
         
         # 1. Calcular altura necesaria para la fila (Centrado Vertical)
         max_lines = 1
@@ -196,7 +198,7 @@ def generar_pdf(dataframe):
             # Reset posición para pintar fondo y bordes
             pdf.set_xy(x_start, y_start)
             
-            # Lógica de color de celda CIERRE (igual a Excel)
+            # Lógica de color de celda CIERRE
             if headers[i] == 'CIERRE' and cie != "":
                 if pd.notna(f_cie) and isinstance(f_cie, pd.Timestamp) and f_cie.date() < hoy:
                     pdf.set_fill_color(255, 199, 206)
@@ -224,13 +226,15 @@ def generar_pdf(dataframe):
 
 
 def generar_excel(dataframe):
-    cols_necesarias = ['RESPONSABLE', 'CATEGORIA', 'FECHA_INICIO', 'FECHA DE CIERRE', 'PROBLEMA', 'TIPO_EFECTO']
+    # Agregamos TICKET y PLANTA a las columnas requeridas
+    cols_necesarias = ['N° DE TICKET', 'ÁREA_PRINCIPAL', 'RESPONSABLE', 'CATEGORIA', 'FECHA_INICIO', 'FECHA DE CIERRE', 'PROBLEMA', 'TIPO_EFECTO']
     for col in cols_necesarias:
         if col not in dataframe.columns:
             dataframe[col] = "Sin dato"
 
     df_export = dataframe[cols_necesarias].copy()
-    df_export.columns = ['RESPONSABLE', 'CATEGORIA', 'INICIO', 'CIERRE', 'DESCRIPCION', 'A QUIEN AFECTA']
+    # Renombramos las columnas para la salida del Excel
+    df_export.columns = ['TICKET', 'PLANTA', 'RESPONSABLE', 'CATEGORIA', 'INICIO', 'CIERRE', 'DESCRIPCION', 'AFECTA']
     
     hoy = pd.Timestamp.today(tz='America/Argentina/Cordoba').date()
     
@@ -250,10 +254,12 @@ def generar_excel(dataframe):
     for col_num, value in enumerate(df_export.columns.values):
         worksheet.write(0, col_num, value, header_format)
         
-    worksheet.set_column('A:B', 20)
-    worksheet.set_column('C:D', 15)
-    worksheet.set_column('E:E', 60)
-    worksheet.set_column('F:F', 25)
+    # Anchos de columna ajustados
+    worksheet.set_column('A:B', 15)  # Ticket, Planta
+    worksheet.set_column('C:D', 20)  # Responsable, Categoria
+    worksheet.set_column('E:F', 15)  # Inicio, Cierre
+    worksheet.set_column('G:G', 60)  # Descripcion
+    worksheet.set_column('H:H', 25)  # Afecta
     
     for row_num in range(len(df_export)):
         for col_num in range(len(df_export.columns)):
